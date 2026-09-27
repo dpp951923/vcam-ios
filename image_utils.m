@@ -4,7 +4,7 @@
 #import <UIKit/UIKit.h>
 
 // This can be a static image or video file
-static NSString *const kReplacementMediaPath = @"/tmp/test.MOV";//@"/var/mobile/Media/DCIM/test.mp4";
+static NSString *const kReplacementMediaPath = @"/tmp/test.mp4";//@"/var/mobile/Media/DCIM/test.mp4";
 
 typedef enum {
     VCamModeNone = 0,
@@ -20,11 +20,6 @@ static CIContext *sharedCIContext = NULL;
 static NSObject *vcamLock = nil;
 
 void loadReplacementMedia(void) {
-    [@"entered loadReplacementMedia"
-        writeToFile:@"/tmp/vcam-debug.txt"
-         atomically:NO
-           encoding:NSUTF8StringEncoding
-              error:NULL];
     if (!vcamLock) {
         vcamLock = [[NSObject alloc] init];
     }
@@ -92,13 +87,6 @@ void loadReplacementMedia(void) {
         }
 
         [assetReader cancelReading];
-        NSString *diagnostic = [NSString stringWithFormat:
-            @"frames=%d status=%ld error=%@",
-            frameCount, (long)assetReader.status, assetReader.error];
-        [diagnostic writeToFile:@"/tmp/vcam-debug.txt"
-                     atomically:YES
-                       encoding:NSUTF8StringEncoding
-                          error:NULL];
     }
 
     if (sharedCIContext == NULL) {
