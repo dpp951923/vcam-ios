@@ -117,8 +117,21 @@ void drawReplacementOntoBuffer(CVPixelBufferRef targetBuffer) {
 
         CGFloat scaleX = targetWidth / replacementExtent.size.width;
         CGFloat scaleY = targetHeight / replacementExtent.size.height;
+        (* CGFloat scale = MIN(scaleX, scaleY); *)
         CGFloat scale = MIN(scaleX, scaleY);
-
+        if (currentMode == VCamModeImage) {
+            static NSTimeInterval zoomStart = 0;
+            NSTimeInterval now = [[NSProcessInfo processInfo] systemUptime];
+            if (zoomStart == 0) zoomStart = now;
+        
+            uint64_t elapsedMs = (uint64_t)((now - zoomStart) * 1000.0);
+            CGFloat phase = (elapsedMs % 8000) / 8000.0;
+            CGFloat progress = (phase <= 0.5) ? phase * 2.0 : (1.0 - phase) * 2.0;
+            CGFloat smooth = progress * progress * (3.0 - 2.0 * progress);
+        
+            scale = MAX(scaleX, scaleY) * (1.0 + 0.25 * smooth);
+        }
+        
         CGAffineTransform transform = CGAffineTransformMakeScale(scale, scale);
         CIImage *scaledImage = [replacementCIImage imageByApplyingTransform:transform];
         
