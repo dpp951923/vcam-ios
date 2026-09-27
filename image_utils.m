@@ -117,19 +117,31 @@ void drawReplacementOntoBuffer(CVPixelBufferRef targetBuffer) {
 
         CGFloat scaleX = targetWidth / replacementExtent.size.width;
         CGFloat scaleY = targetHeight / replacementExtent.size.height;
-        CGFloat scale = MIN(scaleX, scaleY);
-        if (currentMode == VCamModeImage) {
-            static NSTimeInterval zoomStart = 0;
-            NSTimeInterval now = [[NSProcessInfo processInfo] systemUptime];
-            if (zoomStart == 0) zoomStart = now;
+        uint64_t elapsedMs = (uint64_t)((now - zoomStart) * 1000.0);
+
+        const uint64_t holdMs = 2000;      // 原图静止
+        const uint64_t zoomInMs = 500;    // 快速拉近
+        const uint64_t peakHoldMs = 500;  // 放大后停留
+        const uint64_t zoomOutMs = 900;   // 退回原图
+        const CGFloat zoomAmount = 0.35;  // 最多额外放大 35%
         
-            uint64_t elapsedMs = (uint64_t)((now - zoomStart) * 1000.0);
-            CGFloat phase = (elapsedMs % 8000) / 8000.0;
-            CGFloat progress = (phase <= 0.5) ? phase * 2.0 : (1.0 - phase) * 2.0;
-            CGFloat smooth = progress * progress * (3.0 - 2.0 * progress);
+        uint64_t cycleMs = holdMs + zoomInMs + peakHoldMs + zoomOutMs;
+        uint64_t t = elapsedMs % cycleMs;
+        CGFloat amount = 0.0;
         
-            scale = MAX(scaleX, scaleY) * (1.0 + 0.25 * smooth);
+        if (t < holdMs) {
+            amount = 0.0;
+        } else if (t < holdMs + zoomInMs) {
+            CGFloat p = (CGFloat)(t - holdMs) / zoomInMs;
+            amount = 1.0 - (1.0 - p) * (1.0 - p) * (1.0 - p);
+        } else if (t < holdMs + zoomInMs + peakHoldMs) {
+            amount = 1.0;
+        } else {
+            CGFloat p = (CGFloat)(t - holdMs - zoomInMs - peakHoldMs) / zoomOutMs;
+            amount = 1.0 - p * p * (3.0 - 2.0 * p);
         }
+        
+        scale = MAX(scaleX, scaleY) * (1.0 + zoomAmount * amount);
         
         CGAffineTransform transform = CGAffineTransformMakeScale(scale, scale);
         CIImage *scaledImage = [replacementCIImage imageByApplyingTransform:transform];
