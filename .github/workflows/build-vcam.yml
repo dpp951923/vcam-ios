@@ -1,0 +1,36 @@
+name: Build vcam for iPhone 8
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Theos and iOS 16.5 SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+          mkdir -p "$HOME/theos/sdks"
+          curl -fL --retry 3 \
+            -o "$RUNNER_TEMP/iPhoneOS16.5.sdk.tar.xz" \
+            https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS16.5.sdk.tar.xz
+          tar -xJf "$RUNNER_TEMP/iPhoneOS16.5.sdk.tar.xz" -C "$HOME/theos/sdks"
+          test -d "$HOME/theos/sdks/iPhoneOS16.5.sdk"
+
+      - name: Build rootless deb
+        shell: bash
+        run: |
+          set -euo pipefail
+          make clean package ARCHS=arm64 messages=yes
+          ls -lh packages/*.deb
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vcam-iphone8-rootless-deb
+          path: packages/*.deb
+          if-no-files-found: error
