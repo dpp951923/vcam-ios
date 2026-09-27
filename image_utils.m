@@ -20,6 +20,11 @@ static CIContext *sharedCIContext = NULL;
 static NSObject *vcamLock = nil;
 
 void loadReplacementMedia(void) {
+    [@"entered loadReplacementMedia"
+        writeToFile:@"/tmp/vcam-debug.txt"
+         atomically:NO
+           encoding:NSUTF8StringEncoding
+              error:NULL];
     if (!vcamLock) {
         vcamLock = [[NSObject alloc] init];
     }
