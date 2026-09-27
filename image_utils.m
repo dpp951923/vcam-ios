@@ -100,9 +100,9 @@ void drawReplacementOntoBuffer(CVPixelBufferRef targetBuffer) {
 
         if (currentMode == VCamModeImage) {
             replacementCIImage = [CIImage imageWithCGImage:replacementImage];
-        } 
-        else if (currentMode == VCamModeVideo) {
-            CVPixelBufferRef videoFrame = (__bridge CVPixelBufferRef)videoFrames[currentFrameIndex];
+        } else if (currentMode == VCamModeVideo) {
+            CVPixelBufferRef videoFrame =
+                (__bridge CVPixelBufferRef)videoFrames[currentFrameIndex];
             currentFrameIndex = (currentFrameIndex + 1) % videoFrames.count;
             replacementCIImage = [CIImage imageWithCVPixelBuffer:videoFrame];
         }
@@ -115,42 +115,66 @@ void drawReplacementOntoBuffer(CVPixelBufferRef targetBuffer) {
         CGFloat targetHeight = CVPixelBufferGetHeight(targetBuffer);
         CGRect replacementExtent = replacementCIImage.extent;
 
+        if (replacementExtent.size.width <= 0 ||
+            replacementExtent.size.height <= 0) {
+            return;
+        }
+
         CGFloat scaleX = targetWidth / replacementExtent.size.width;
         CGFloat scaleY = targetHeight / replacementExtent.size.height;
-        uint64_t elapsedMs = (uint64_t)((now - zoomStart) * 1000.0);
+        CGFloat scale = MIN(scaleX, scaleY);
 
-        const uint64_t holdMs = 2000;      // 原图静止
-        const uint64_t zoomInMs = 500;    // 快速拉近
-        const uint64_t peakHoldMs = 500;  // 放大后停留
-        const uint64_t zoomOutMs = 900;   // 退回原图
-        const CGFloat zoomAmount = 0.35;  // 最多额外放大 35%
-        
-        uint64_t cycleMs = holdMs + zoomInMs + peakHoldMs + zoomOutMs;
-        uint64_t t = elapsedMs % cycleMs;
-        CGFloat amount = 0.0;
-        
-        if (t < holdMs) {
-            amount = 0.0;
-        } else if (t < holdMs + zoomInMs) {
-            CGFloat p = (CGFloat)(t - holdMs) / zoomInMs;
-            amount = 1.0 - (1.0 - p) * (1.0 - p) * (1.0 - p);
-        } else if (t < holdMs + zoomInMs + peakHoldMs) {
-            amount = 1.0;
-        } else {
-            CGFloat p = (CGFloat)(t - holdMs - zoomInMs - peakHoldMs) / zoomOutMs;
-            amount = 1.0 - p * p * (3.0 - 2.0 * p);
+        if (currentMode == VCamModeImage) {
+            static NSTimeInterval zoomStart = 0;
+            NSTimeInterval now = [[NSProcessInfo processInfo] systemUptime];
+            if (zoomStart == 0) {
+                zoomStart = now;
+            }
+
+            uint64_t elapsedMs =
+                (uint64_t)((now - zoomStart) * 1000.0);
+
+            const uint64_t holdMs = 2000;
+            const uint64_t zoomInMs = 500;
+            const uint64_t peakHoldMs = 500;
+            const uint64_t zoomOutMs = 900;
+            const CGFloat zoomAmount = 0.35;
+
+            uint64_t cycleMs =
+                holdMs + zoomInMs + peakHoldMs + zoomOutMs;
+            uint64_t t = elapsedMs % cycleMs;
+            CGFloat amount = 0.0;
+
+            if (t < holdMs) {
+                amount = 0.0;
+            } else if (t < holdMs + zoomInMs) {
+                CGFloat p = (CGFloat)(t - holdMs) / zoomInMs;
+                amount = 1.0 - (1.0 - p) * (1.0 - p) * (1.0 - p);
+            } else if (t < holdMs + zoomInMs + peakHoldMs) {
+                amount = 1.0;
+            } else {
+                CGFloat p =
+                    (CGFloat)(t - holdMs - zoomInMs - peakHoldMs) /
+                    zoomOutMs;
+                amount = 1.0 - p * p * (3.0 - 2.0 * p);
+            }
+
+            scale =
+                MAX(scaleX, scaleY) * (1.0 + zoomAmount * amount);
         }
-        
-        scale = MAX(scaleX, scaleY) * (1.0 + zoomAmount * amount);
-        
-        CGAffineTransform transform = CGAffineTransformMakeScale(scale, scale);
-        CIImage *scaledImage = [replacementCIImage imageByApplyingTransform:transform];
-        
+
+        CIImage *scaledImage = [replacementCIImage
+            imageByApplyingTransform:CGAffineTransformMakeScale(scale, scale)];
+
         CGRect scaledExtent = scaledImage.extent;
-        CGFloat offsetX = (targetWidth - scaledExtent.size.width) / 2.0;
-        CGFloat offsetY = (targetHeight - scaledExtent.size.height) / 2.0;        
-        CGAffineTransform translationTransform = CGAffineTransformMakeTranslation(offsetX, offsetY);
-        CIImage *finalImage = [scaledImage imageByApplyingTransform:translationTransform];
+        CGFloat offsetX =
+            targetWidth / 2.0 - CGRectGetMidX(scaledExtent);
+        CGFloat offsetY =
+            targetHeight / 2.0 - CGRectGetMidY(scaledExtent);
+
+        CIImage *finalImage = [scaledImage
+            imageByApplyingTransform:
+                CGAffineTransformMakeTranslation(offsetX, offsetY)];
 
         if (sharedCIContext) {
             [sharedCIContext render:finalImage toCVPixelBuffer:targetBuffer];
