@@ -117,7 +117,6 @@ void drawReplacementOntoBuffer(CVPixelBufferRef targetBuffer) {
 
         CGFloat scaleX = targetWidth / replacementExtent.size.width;
         CGFloat scaleY = targetHeight / replacementExtent.size.height;
-        (* CGFloat scale = MIN(scaleX, scaleY); *)
         CGFloat scale = MIN(scaleX, scaleY);
         if (currentMode == VCamModeImage) {
             static NSTimeInterval zoomStart = 0;
