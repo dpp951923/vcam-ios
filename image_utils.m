@@ -87,6 +87,13 @@ void loadReplacementMedia(void) {
         }
 
         [assetReader cancelReading];
+        NSString *diagnostic = [NSString stringWithFormat:
+            @"frames=%d status=%ld error=%@",
+            frameCount, (long)assetReader.status, assetReader.error];
+        [diagnostic writeToFile:@"/tmp/vcam-debug.txt"
+                     atomically:YES
+                       encoding:NSUTF8StringEncoding
+                          error:NULL];
     }
 
     if (sharedCIContext == NULL) {
