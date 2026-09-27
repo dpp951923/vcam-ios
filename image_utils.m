@@ -4,7 +4,7 @@
 #import <UIKit/UIKit.h>
 
 // This can be a static image or video file
-static NSString *const kReplacementMediaPath = @"/tmp/test.png";//@"/var/mobile/Media/DCIM/test.mp4";
+static NSString *const kReplacementMediaPath = @"/tmp/test.mp4";//@"/var/mobile/Media/DCIM/test.mp4";
 
 typedef enum {
     VCamModeNone = 0,
