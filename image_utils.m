@@ -1,15 +1,16 @@
 #import <CoreImage/CoreImage.h>
 #import <CoreMedia/CoreMedia.h>
 #import <CoreVideo/CoreVideo.h>
+#import <QuartzCore/QuartzCore.h>
 #import <UIKit/UIKit.h>
 #include <fcntl.h>
+#include <math.h>
 #include <stdarg.h>
 #include <unistd.h>
 
-// Frames are extracted from the MP4 before installation: frame_000.png ... frame_059.png.
+// All frames are extracted from the MP4 before installation.
 static NSString *const kFrameDirectory = @"/tmp/vcam-frames";
 static const char *kDebugLogPath = "/tmp/vcam-debug.txt";
-static const NSUInteger kMaxFrames = 60;
 
 static void VCamDebugLog(NSString *format, ...) {
     @autoreleasepool {
@@ -34,7 +35,8 @@ static void VCamDebugLog(NSString *format, ...) {
 }
 
 static NSArray<UIImage *> *replacementFrames = nil;
-static NSUInteger currentFrameIndex = 0;
+static double sourceFPS = 30.0;
+static CFTimeInterval playbackStartTime = 0;
 static CIContext *sharedCIContext = nil;
 static NSObject *vcamLock = nil;
 static BOOL didLogDraw = NO;
@@ -44,29 +46,42 @@ void loadReplacementMedia(void) {
     VCamDebugLog(@"sequence load entered directory=%@", kFrameDirectory);
 
     NSFileManager *fileManager = [NSFileManager defaultManager];
-    NSMutableArray<UIImage *> *frames = [[NSMutableArray alloc] init];
-    for (NSUInteger index = 0; index < kMaxFrames; index++) {
+    NSString *fpsPath = [kFrameDirectory stringByAppendingPathComponent:@"fps.txt"];
+    NSString *fpsText = [NSString stringWithContentsOfFile:fpsPath encoding:NSUTF8StringEncoding error:NULL];
+    double parsedFPS = fpsText.doubleValue;
+    if (isfinite(parsedFPS) && parsedFPS > 0 && parsedFPS <= 240) sourceFPS = parsedFPS;
+
+    NSString *countPath = [kFrameDirectory stringByAppendingPathComponent:@"frame_count.txt"];
+    NSString *countText = [NSString stringWithContentsOfFile:countPath encoding:NSUTF8StringEncoding error:NULL];
+    NSInteger expectedCount = countText.integerValue;
+    if (expectedCount <= 0) {
+        VCamDebugLog(@"abort: missing/invalid frame_count.txt path=%@", countPath);
+        return;
+    }
+
+    NSMutableArray<UIImage *> *frames = [[NSMutableArray alloc] initWithCapacity:(NSUInteger)expectedCount];
+    for (NSInteger index = 0; index < expectedCount; index++) {
         NSString *path = [kFrameDirectory stringByAppendingPathComponent:
-                          [NSString stringWithFormat:@"frame_%03lu.png", (unsigned long)index]];
+                          [NSString stringWithFormat:@"frame_%03ld.png", (long)index]];
         if (![fileManager isReadableFileAtPath:path]) {
-            VCamDebugLog(@"frame missing/unreadable index=%lu path=%@", (unsigned long)index, path);
-            break;
+            VCamDebugLog(@"abort: frame missing/unreadable index=%ld path=%@", (long)index, path);
+            return;
         }
         UIImage *image = [UIImage imageWithContentsOfFile:path];
         if (!image || !image.CGImage) {
-            VCamDebugLog(@"frame decode failed index=%lu path=%@", (unsigned long)index, path);
-            break;
+            VCamDebugLog(@"abort: frame decode failed index=%ld path=%@", (long)index, path);
+            return;
         }
         [frames addObject:image];
     }
 
     replacementFrames = [frames copy];
-    currentFrameIndex = 0;
+    playbackStartTime = 0;
     sharedCIContext = [CIContext context];
     if (replacementFrames.count > 0) {
         UIImage *first = replacementFrames[0];
-        VCamDebugLog(@"sequence ready frames=%lu first=%zux%zu ciContext=%d",
-                     (unsigned long)replacementFrames.count,
+        VCamDebugLog(@"sequence ready and all images loaded frames=%lu expected=%ld fps=%.5f first=%zux%zu ciContext=%d",
+                     (unsigned long)replacementFrames.count, (long)expectedCount, sourceFPS,
                      CGImageGetWidth(first.CGImage), CGImageGetHeight(first.CGImage),
                      sharedCIContext != nil);
     } else {
@@ -78,20 +93,23 @@ void drawReplacementOntoBuffer(CVPixelBufferRef targetBuffer) {
     @synchronized(vcamLock) {
         if (!didLogDraw) {
             didLogDraw = YES;
-            VCamDebugLog(@"draw entered target=%zux%zu frames=%lu",
+            VCamDebugLog(@"draw entered target=%zux%zu frames=%lu fps=%.5f",
                          targetBuffer ? CVPixelBufferGetWidth(targetBuffer) : 0,
                          targetBuffer ? CVPixelBufferGetHeight(targetBuffer) : 0,
-                         (unsigned long)replacementFrames.count);
+                         (unsigned long)replacementFrames.count, sourceFPS);
         }
         if (!targetBuffer || replacementFrames.count == 0 || !sharedCIContext) return;
 
-        UIImage *frame = replacementFrames[currentFrameIndex];
-        currentFrameIndex = (currentFrameIndex + 1) % replacementFrames.count;
+        CFTimeInterval now = CACurrentMediaTime();
+        if (playbackStartTime == 0) playbackStartTime = now;
+        NSUInteger frameIndex = (NSUInteger)floor((now - playbackStartTime) * sourceFPS)
+                                % replacementFrames.count;
+        UIImage *frame = replacementFrames[frameIndex];
         CIImage *replacementCIImage = [CIImage imageWithCGImage:frame.CGImage];
         CGFloat targetWidth = CVPixelBufferGetWidth(targetBuffer);
         CGFloat targetHeight = CVPixelBufferGetHeight(targetBuffer);
         CGRect sourceExtent = replacementCIImage.extent;
-        CGFloat scale = MIN(targetWidth / sourceExtent.size.width,
+        CGFloat scale = MAX(targetWidth / sourceExtent.size.width,
                             targetHeight / sourceExtent.size.height);
         CIImage *scaled = [replacementCIImage imageByApplyingTransform:CGAffineTransformMakeScale(scale, scale)];
         CGRect scaledExtent = scaled.extent;
